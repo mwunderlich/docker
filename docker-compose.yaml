@@ -1,0 +1,38 @@
+version: '3.3'
+services:
+  mysql:
+    image: mysql:8.0.22
+    container_name: mysql
+    restart: always
+    environment:
+      - MYSQL_DATABASE=translate5
+      - MYSQL_USER=translate5
+      - MYSQL_PASSWORD=translate5
+      - MYSQL_ROOT_PASSWORD=root
+    ports:
+      - '33066:3306'
+    expose:
+      - '3306'
+    volumes:
+      - ./mysqlData:/var/lib/mysql
+      - ./sql:/docker-entrypoint-initdb.d
+    working_dir: /var/lib/mysql
+
+  translate5_with_phpapache:
+    container_name: translate5_with_phpapache
+    build:
+      context: ./
+      dockerfile: translate5_with_phpapache.docker
+      args: 
+        - CMD_PHP=/usr/local/bin/php
+    environment:
+      - CMD_PHP=/usr/local/bin/php
+    ports:
+      - "8080:80"
+      - "4433:443"
+    volumes:
+      - ./www:/var/www/html
+    command: ["sleep","infinity"]
+
+volumes:
+  mysqlData:

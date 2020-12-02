@@ -1,0 +1,100 @@
+FROM php:7.4-apache
+LABEL maintainer "support@translate5.net"
+
+# This ARG needs to be set here, because the "enviroment" values from the docker-compose file are available only at runtime, not at buildtime
+ARG CMD_PHP
+
+# UPDATE PACKAGE INFO AND INSTALL SUDO, LOCALES
+RUN apt-get update && apt-get install -y --no-install-recommends sudo locales 
+
+# SET LOCALE
+RUN update-locale LANG=C.UTF-8
+
+# ADJUST APACHE2
+RUN a2enmod rewrite filter deflate headers expires
+RUN apache2ctl restart
+
+# INSTALL PHP libs
+RUN set -eux; \
+    \
+    savedAptMark="$(apt-mark showmanual)"; \
+    \
+    apt-get install -y --no-install-recommends \
+        libcurl4-openssl-dev \
+        libfreetype6-dev \
+        libicu-dev \
+        libjpeg-dev \
+        libmagickwand-dev \
+        libpng-dev \
+        libzip-dev \
+    ;
+
+RUN sudo apt install libonig-dev
+    
+RUN docker-php-ext-install -j "$(nproc)" \
+        curl \
+        dom \
+        gd \
+        intl \
+        json \
+        mbstring \
+        mysqli \
+        opcache \
+        zip \
+    ;
+
+# FIXME: The sequence below will break the Apache2 installation. Needs to be reviewed.
+#    
+# reset apt-mark's "manual" list so that "purge --auto-remove" will remove all build dependencies
+# RUN apt-mark auto '.*' > /dev/null; \
+#    apt-mark manual $savedAptMark; \
+#    ldd "$(php -r 'echo ini_get("extension_dir");')"/*.so \
+#        | awk '/=>/ { print $3 }' \
+#        | sort -u \
+#        | xargs -r dpkg-query -S \
+#        | cut -d: -f1 \
+#        | sort -u \
+#        | xargs -rt apt-mark manual; \
+#    \
+#    apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false; \
+#    rm -rf /var/lib/apt/lists/*
+
+# INSTALL JAVA
+# mkdir is required to prevent errors
+# see https://github.com/geerlingguy/ansible-role-java/issues/64
+RUN sudo mkdir /usr/share/man/man1/
+RUN sudo apt update 
+RUN sudo apt --fix-broken install -y
+RUN sudo apt install openjdk-11-jdk -y
+
+# ADD HOST TO /etc/hosts
+RUN echo "127.0.0.1   translate5.local" >> /etc/hosts
+
+# CREATE VIRTUAL HOST CONFIG FOR TRANSLATE5 AND REMOVE APACHE DEFAULT CONFIG
+COPY ./config/translate5.conf /etc/apache2/sites-available/translate5.conf
+RUN sudo chmod 660 /etc/apache2/sites-available/translate5.conf
+RUN sudo ln -s /etc/apache2/sites-available/translate5.conf /etc/apache2/sites-enabled/translate5.conf
+RUN sudo rm /etc/apache2/sites-available/000-default.conf
+RUN sudo rm /etc/apache2/sites-enabled/000-default.conf
+RUN apache2ctl restart
+
+# INSTALL ADDITIONAL DEPs AND 
+# DOWNLOAD Translate5
+# FIXME: The currently published zip package does not contain modifications to install-and-update.sh that are required for the installation to run. Therefore, the lines below have been commented out for the time being.
+RUN sudo apt install curl unzip default-mysql-client -y
+RUN set -eu
+RUN sudo mkdir /var/www/translate5
+WORKDIR /var/www/
+#RUN curl -fSL "https://downloads.translate5.net/translate5.zip" -o translate5.zip;
+#RUN unzip translate5.zip;
+#RUN rm translate5.zip;
+
+# INSTALL Translate5
+# FIXME: Currently not working; see comment above.
+RUN sudo chown -R www-data:www-data .
+WORKDIR /var/www/translate5
+# RUN sudo -E -u www-data ./install-and-update.sh --license-ignore
+
+# PORTS
+EXPOSE 80
+EXPOSE 443
